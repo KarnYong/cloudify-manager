@@ -30,9 +30,9 @@ class AuthenticationTests(SecurityTestBase):
         return {}
 
     def test_secured_client(self):
-        client = self.create_client(headers=SecurityTestBase.
-                                    create_auth_header(username='admin',
-                                                       password='admin'))
+        auth_header = SecurityTestBase.create_auth_header(
+            username='alice', password='alice_password')
+        client = self.create_client(headers=auth_header)
         client.deployments.list()
 
     def test_wrong_credentials(self):
@@ -68,26 +68,26 @@ class AuthenticationTests(SecurityTestBase):
     def test_missing_user(self):
         client = self.create_client(headers=SecurityTestBase.
                                     create_auth_header(username=None,
-                                                       password='admin'))
+                                                       password='my_password'))
         self.assertRaises(UserUnauthorizedError, client.deployments.list)
 
     def test_missing_password(self):
         client = self.create_client(headers=SecurityTestBase.
-                                    create_auth_header(username='admin',
+                                    create_auth_header(username='my_username',
                                                        password=None))
         self.assertRaises(UserUnauthorizedError, client.deployments.list)
 
     def test_token_authentication(self):
-        client = self.create_client(headers=SecurityTestBase.
-                                    create_auth_header(username='admin',
-                                                       password='admin'))
-        token = client.tokens.get()
-        client = self.create_client(headers=SecurityTestBase.
-                                    create_auth_header(token=token.value))
+        user_password_header = SecurityTestBase.create_auth_header(
+            username='alice', password='alice_password')
+        client = self.create_client(headers=user_password_header)
+        token = client.tokens.get().value
+        token_header = SecurityTestBase.create_auth_header(token=token)
+        client = self.create_client(headers=token_header)
         client.blueprints.list()
 
     def test_secured_manager_blueprints_upload(self):
-        client = self.create_client(headers=SecurityTestBase.
-                                    create_auth_header(username='admin',
-                                                       password='admin'))
+        auth_header = SecurityTestBase.create_auth_header(
+            username='alice', password='alice_password')
+        client = self.create_client(headers=auth_header)
         client.blueprints.upload(self.get_mock_blueprint_path(), 'bp-id')

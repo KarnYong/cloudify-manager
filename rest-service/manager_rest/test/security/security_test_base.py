@@ -27,9 +27,9 @@ BASIC_AUTH_PREFIX = 'Basic '
 class SecurityTestBase(BaseServerTestCase):
 
     def initialize_provider_context(self):
-        client = self.create_client(
-            headers=SecurityTestBase.create_auth_header(username='admin',
-                                                        password='admin'))
+        auth_header = SecurityTestBase.create_auth_header(
+            username='alice', password='alice_password')
+        client = self.create_client(headers=auth_header)
         super(SecurityTestBase, self).initialize_provider_context(
             client=client)
 
@@ -95,24 +95,24 @@ class SecurityTestBase(BaseServerTestCase):
                 'userstore': {
                     'users': [
                         {
-                            'username': 'admin',
-                            'password': 'admin',
+                            'username': 'alice',
+                            'password': 'alice_password',
                             'groups': ['cfy_admins']
                         },
                         {
-                            'username': 'deployment_manager',
-                            'password': 'deployment_manager',
+                            'username': 'bob',
+                            'password': 'bob_password',
                             'groups': ['managers', 'users']
                         },
                         {
-                            'username': 'deployment_viewer',
-                            'password': 'deployment_viewer',
+                            'username': 'carol',
+                            'password': 'carol_password',
                             'groups': ['users'],
                             'roles': ['viewer']
                         },
                         {
-                            'username': 'user',
-                            'password': 'user',
+                            'username': 'dave',
+                            'password': 'dave_password',
                             'groups': ['users']
                         }
                     ],
