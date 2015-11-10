@@ -15,6 +15,12 @@
 
 
 import abc
+import os
+import sys
+
+
+from cloudify.exceptions import NonRecoverableError
+from cloudify.workflows import tasks
 
 
 class PluginInstaller(object):
@@ -24,3 +30,23 @@ class PluginInstaller(object):
     @abc.abstractmethod
     def install(self, plugins):
         pass
+
+    @abc.abstractmethod
+    def uninstall(self, plugins):
+        pass
+
+VIRTUALENV = os.path.dirname(os.path.dirname(sys.executable))
+
+
+def mock_verify_worker_alive(name, *args):
+    if 'non_existent' in name:
+        raise NonRecoverableError('AGENT_ALIVE_FAIL')
+
+
+# This is needed because in this
+# environment, all tasks are sent to
+# the management worker, and handled by
+# different consumers. The original method
+# asserts that tasks are being sent to
+# different workers,
+tasks.verify_worker_alive = mock_verify_worker_alive

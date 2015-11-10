@@ -19,12 +19,6 @@ from celery import Celery
 
 from manager_rest import config
 
-TASK_STATE_PENDING = 'PENDING'
-TASK_STATE_STARTED = 'STARTED'
-TASK_STATE_SUCCESS = 'SUCCESS'
-TASK_STATE_RETRY = 'RETRY'
-TASK_STATE_FAILURE = 'FAILURE'
-
 
 class CeleryClient(object):
 
@@ -49,18 +43,17 @@ class CeleryClient(object):
         if config.instance().amqp_ssl_enabled:
             self.celery.conf.update(BROKER_USE_SSL=ssl_settings)
 
-    def execute_task(self, task_name, task_queue, task_id=None, kwargs=None):
+    def execute_task(self, task_queue, task_id=None, kwargs=None):
         """
             Execute a task
 
-            :param task_name: the task name
             :param task_queue: the task queue
             :param task_id: optional id for the task
             :param kwargs: optional kwargs to be passed to the task
             :return: the celery task async result
         """
 
-        return self.celery.send_task(task_name,
+        return self.celery.send_task('cloudify.dispatch.dispatch',
                                      queue=task_queue,
                                      task_id=task_id,
                                      kwargs=kwargs)
