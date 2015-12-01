@@ -44,58 +44,79 @@ class AuthorizationTests(SecurityTestBase):
 
     def test_blueprint_operations(self):
         # test
-        standard_blueprint_id, private_blueprint_id = \
-            self._test_upload_blueprints()
-        self._test_list_blueprints(standard_blueprint_id,
-                                   private_blueprint_id)
-        self._test_get_blueprints(standard_blueprint_id,
-                                  private_blueprint_id)
-        self._test_delete_blueprints(standard_blueprint_id)
+        blueprint_ids = self._test_upload_blueprints()
+        self._test_list_blueprints(blueprint_ids)
+        self._test_get_blueprints(public_blueprint_id=blueprint_ids[0],
+                                  private_blueprint_id=blueprint_ids[1])
+        self._test_delete_blueprints(blueprint_ids[0])
 
         # cleanup
-        self.admin_client.blueprints.delete('blueprint_2')
+        # item 0 was deleted by _test_delete_blueprints
+        for blueprint_id in blueprint_ids[1:]:
+            self.admin_client.blueprints.delete(blueprint_id)
 
     def test_deployment_operations(self):
+        blueprint_id = 'test_deployment_blueprint_1'
         # setup
-        self.admin_client.blueprints.upload(
-            self.blueprint_path, 'bp_example_1')
+        self.admin_client.blueprints.upload(self.blueprint_path, blueprint_id)
+
         # test
-        self._test_create_deployments()
-        self._test_list_deployments()
-        self._test_get_deployments()
-        self._test_delete_deployments()
+        deployment_ids = self._test_create_deployments(blueprint_id)
+        self._test_list_deployments(deployment_ids)
+        self._test_get_deployments(deployment_ids[0])
+        self._test_delete_deployments(deployment_ids[0])
+
+        # cleanup
+        # item 0 was deleted by _test_delete_deployments
+        for deployment in deployment_ids[1:]:
+            self.admin_client.deployments.delete(deployment)
+        self.admin_client.blueprints.delete(blueprint_id)
 
     def test_execution_operations(self):
+        blueprint_ids = ['test_execution_blueprint_1',
+                         'test_execution_blueprint_2']
+        deployment_ids = ['test_execution_deployment_1',
+                          'test_execution_deployment_2']
+
         # setup
         self.admin_client.blueprints.upload(
-            self.blueprint_path, 'blueprint_1')
-        self.admin_client.deployments.create('blueprint_1', 'deployment_1')
+            self.blueprint_path, blueprint_ids[0])
         self.admin_client.blueprints.upload(
-            self.blueprint_path, 'blueprint_2')
-        self.admin_client.deployments.create('blueprint_2', 'deployment_2')
+            self.blueprint_path, blueprint_ids[1])
+        # creating the deployments generate 1 execution per deployment
+        self.admin_client.deployments.create(
+            blueprint_ids[0], deployment_ids[0])
+        self.admin_client.deployments.create(
+            blueprint_ids[1], deployment_ids[1])
 
         # test
-        self._test_list_executions()
-        execution1_id, execution2_id = self._test_start_executions()
-        self._test_get_executions(execution1_id, execution2_id)
-        self._test_update_executions(execution1_id)
-        self._test_cancel_executions(execution1_id, execution2_id)
+        executions = self._test_start_executions(deployment_ids)
+        # to the number of "install" executions we must add the 2 deployment
+        # env creations executed above
+        self._test_list_executions(len(executions) + 2)
+        self._test_get_executions(executions[0])
+        self._test_update_executions(executions[0])
+        self._test_cancel_executions(executions)
 
     def test_node_operations(self):
+        blueprint_id = 'blueprint_1'
+        deployment_id = 'deployment_1'
+
         # setup
         self.admin_client.blueprints.upload(
-            self.blueprint_path, 'blueprint_1')
-        self.admin_client.deployments.create('blueprint_1', 'deployment_1')
+            self.blueprint_path, blueprint_id)
+        self.admin_client.deployments.create(blueprint_id, deployment_id)
 
         # test
-        self._test_list_nodes()
-        self._test_get_nodes()
+        self._test_list_nodes(expected_nodes_num=1)
+        self._test_get_nodes(blueprint_id, deployment_id)
 
     def test_node_instance_operations(self):
         # setup
-        self.admin_client.blueprints.upload(
-            self.blueprint_path, 'blueprint_1')
-        self.admin_client.deployments.create('blueprint_1', 'deployment_1')
+        blueprint_id = 'test_node_instance_blueprint_1'
+        deployment_id = 'deployment_1'
+        self.admin_client.blueprints.upload(self.blueprint_path, blueprint_id)
+        self.admin_client.deployments.create(blueprint_id, deployment_id)
 
         # test
         node_instances = self._test_list_node_instances()
@@ -105,20 +126,24 @@ class AuthorizationTests(SecurityTestBase):
     def test_token_client_is_not_breaching(self):
         admin_token_client, deployer_token_client, viewer_token_client = \
             self._test_get_token()
-        self._test_blueprint_upload_with_token(admin_token_client,
-                                               deployer_token_client,
-                                               viewer_token_client)
+        blueprint_ids = self._test_blueprint_upload_with_token(
+            admin_token_client, deployer_token_client, viewer_token_client)
         self._test_get_blueprint_with_token(admin_token_client,
                                             deployer_token_client,
-                                            viewer_token_client)
+                                            viewer_token_client,
+                                            blueprint_ids[0])
         self._test_blueprint_list_with_token(admin_token_client,
                                              deployer_token_client,
-                                             viewer_token_client)
+                                             viewer_token_client,
+                                             blueprint_ids)
         self._test_blueprint_delete_with_token(admin_token_client,
                                                deployer_token_client,
-                                               viewer_token_client)
-        # cleaning up left over blueprints
-        admin_token_client.blueprints.delete('token_bp_example_2')
+                                               viewer_token_client,
+                                               blueprint_ids[0])
+        # cleanup
+        # item 0 was deleted by _test_blueprint_delete_with_token
+        for blueprint_id in blueprint_ids[1:]:
+            self.admin_client.blueprints.delete(blueprint_id)
 
     ##################
     # token methods
@@ -128,15 +153,19 @@ class AuthorizationTests(SecurityTestBase):
                                           deployer_token_client,
                                           viewer_token_client):
         # admins and deployers should be able to upload blueprints...
-        token_bp_example_1 = admin_token_client.blueprints.upload(
-            self.blueprint_path, 'token_bp_example_1')
-        self._assert_resource_id(token_bp_example_1, 'token_bp_example_1')
-        token_bp_example_2 = deployer_token_client.blueprints.upload(
-            self.blueprint_path, 'token_bp_example_2')
-        self._assert_resource_id(token_bp_example_2, 'token_bp_example_2')
+        token_bp1_id = 'token_bp1'
+        token_bp2_id = 'token_bp2'
+        uploaded_token_bp = admin_token_client.blueprints.upload(
+            self.blueprint_path, token_bp1_id)
+        self._assert_resource_id(token_bp1_id, uploaded_token_bp)
+        uploaded_token_bp = deployer_token_client.blueprints.upload(
+            self.blueprint_path, token_bp2_id)
+        self._assert_resource_id(token_bp2_id, uploaded_token_bp)
         # ...but viewers should not
         self._assert_unauthorized(viewer_token_client.blueprints.upload,
                                   self.blueprint_path, 'token_dummy_bp')
+
+        return token_bp1_id, token_bp2_id
 
     def _test_get_token(self):
         # admins, deployers and viewers should be able to get a token...
@@ -155,40 +184,42 @@ class AuthorizationTests(SecurityTestBase):
     def _test_blueprint_list_with_token(self,
                                         admin_token_client,
                                         deployer_token_client,
-                                        viewer_token_client):
+                                        viewer_token_client,
+                                        expected_ids):
         # admins, deployers and viewers should be able so list blueprints
-        expected_ids = set(['token_bp_example_1', 'token_bp_example_2'])
         blueprints_list = admin_token_client.blueprints.list()
-        self._assert_resources_list_ids(blueprints_list, expected_ids)
+        self._assert_resources_list_ids(expected_ids, blueprints_list)
         blueprints_list = deployer_token_client.blueprints.list()
-        self._assert_resources_list_ids(blueprints_list, expected_ids)
+        self._assert_resources_list_ids(expected_ids, blueprints_list)
         blueprints_list = viewer_token_client.blueprints.list()
-        self._assert_resources_list_ids(blueprints_list, expected_ids)
+        self._assert_resources_list_ids(expected_ids, blueprints_list)
 
     def _test_get_blueprint_with_token(self,
                                        admin_token_client,
                                        deployer_token_client,
-                                       viewer_token_client):
+                                       viewer_token_client,
+                                       blueprint_id):
         # admins, deployers and viewers should be able so list blueprints
-        blueprint = admin_token_client.blueprints.get('token_bp_example_1')
-        self._assert_resource_id(blueprint, 'token_bp_example_1')
-        blueprint = deployer_token_client.blueprints.get('token_bp_example_1')
-        self._assert_resource_id(blueprint, 'token_bp_example_1')
-        blueprint = viewer_token_client.blueprints.get('token_bp_example_1')
-        self._assert_resource_id(blueprint, 'token_bp_example_1')
+        found_blueprint = admin_token_client.blueprints.get(blueprint_id)
+        self._assert_resource_id(blueprint_id, found_blueprint)
+        found_blueprint = deployer_token_client.blueprints.get(blueprint_id)
+        self._assert_resource_id(blueprint_id, found_blueprint)
+        found_blueprint = viewer_token_client.blueprints.get(blueprint_id)
+        self._assert_resource_id(blueprint_id, found_blueprint)
 
     def _test_blueprint_delete_with_token(self,
                                           admin_token_client,
                                           deployer_token_client,
-                                          viewer_token_client):
+                                          viewer_token_client,
+                                          blueprint_id):
         # admins should be able to delete a blueprint...
-        admin_token_client.blueprints.delete('token_bp_example_1')
+        admin_token_client.blueprints.delete(blueprint_id)
 
         # ...but deployers and viewers should not
         self._assert_unauthorized(deployer_token_client.blueprints.delete,
-                                  'token_bp_example_1')
+                                  blueprint_id)
         self._assert_unauthorized(viewer_token_client.blueprints.delete,
-                                  'token_bp_example_2')
+                                  blueprint_id)
 
     ####################
     # blueprint methods
@@ -197,11 +228,11 @@ class AuthorizationTests(SecurityTestBase):
         # admins and deployers should be able to upload blueprints...
         blueprint_1 = self.admin_client.blueprints.upload(
             self.blueprint_path, 'blueprint_1')
-        self._assert_resource_id(blueprint_1, 'blueprint_1')
+        self._assert_resource_id('blueprint_1', blueprint_1)
 
         blueprint_2 = self.deployer_client.blueprints.upload(
             self.blueprint_path, 'blueprint_2')
-        self._assert_resource_id(blueprint_2, 'blueprint_2')
+        self._assert_resource_id('blueprint_2', blueprint_2)
 
         # ...but viewers and simple users should not
         self._assert_unauthorized(self.viewer_client.blueprints.upload,
@@ -210,31 +241,28 @@ class AuthorizationTests(SecurityTestBase):
                                   self.blueprint_path, 'dummy_bp')
         return blueprint_1['id'], blueprint_2['id']
 
-    # TODO pass blueprint ids as *blueprint_ids, use list and not set,
-    # TODO change assertion to match
-    def _test_list_blueprints(self, *expected_ids):
+    def _test_list_blueprints(self, expected_ids):
         # admins, deployers and viewers should be able so list blueprints...
         blueprints_list = self.admin_client.blueprints.list()
-        self._assert_resources_list_ids(blueprints_list, expected_ids)
+        self._assert_resources_list_ids(expected_ids, blueprints_list)
         blueprints_list = self.deployer_client.blueprints.list()
-        self._assert_resources_list_ids(blueprints_list, expected_ids)
+        self._assert_resources_list_ids(expected_ids, blueprints_list)
         blueprints_list = self.viewer_client.blueprints.list()
-        self._assert_resources_list_ids(blueprints_list, expected_ids)
+        self._assert_resources_list_ids(expected_ids, blueprints_list)
 
         # ...but dave should not
         self._assert_unauthorized(self.simple_user_client.blueprints.list)
 
     def _test_get_blueprints(self, public_blueprint_id, private_blueprint_id):
         # admins, deployers and viewers should be able to get blueprints
-        self._assert_resource_id(
-            self.admin_client.blueprints.get(public_blueprint_id),
-            expected_id=public_blueprint_id)
-        self._assert_resource_id(
-            self.deployer_client.blueprints.get(public_blueprint_id),
-            expected_id=public_blueprint_id)
-        self._assert_resource_id(
-            self.viewer_client.blueprints.get(public_blueprint_id),
-            expected_id=public_blueprint_id)
+        found_blueprint = self.admin_client.blueprints.get(public_blueprint_id)
+        self._assert_resource_id(public_blueprint_id, found_blueprint)
+        found_blueprint = self.deployer_client.blueprints.get(
+            public_blueprint_id)
+        self._assert_resource_id(public_blueprint_id, found_blueprint)
+        found_blueprint = self.viewer_client.blueprints.get(
+            public_blueprint_id)
+        self._assert_resource_id(public_blueprint_id, found_blueprint)
 
         # viewers should not be able to get blueprint_2
         self._assert_unauthorized(self.viewer_client.blueprints.get,
@@ -259,49 +287,50 @@ class AuthorizationTests(SecurityTestBase):
     #####################
     # deployment methods
     #####################
-    def _test_delete_deployments(self):
+    def _test_delete_deployments(self, deployment_id):
         # admins should be able to delete deployments...
-        self.wait_for_deployment_creation(self.admin_client, 'dp_example_2')
-        self.admin_client.deployments.delete('dp_example_2')
+        self.wait_for_deployment_creation(self.admin_client, deployment_id)
+        self.admin_client.deployments.delete(deployment_id)
 
         # ...but but deployers, viewers and simple users should not
         self._assert_unauthorized(self.deployer_client.deployments.delete,
-                                  'dp_example_1')
+                                  deployment_id)
         self._assert_unauthorized(self.viewer_client.deployments.delete,
-                                  'dp_example_1')
+                                  deployment_id)
         self._assert_unauthorized(self.simple_user_client.deployments.delete,
-                                  'dp_example_1')
+                                  deployment_id)
 
-    def _test_get_deployments(self):
+    def _test_get_deployments(self, deployment_id):
         # admins, deployers and viewers should be able to get deployments...
-        dp_example_1 = self.admin_client.deployments.get('dp_example_1')
-        self._assert_resource_id(dp_example_1, expected_id='dp_example_1')
-        dp_example_1 = self.deployer_client.deployments.get('dp_example_1')
-        self._assert_resource_id(dp_example_1, expected_id='dp_example_1')
-        dp_example_2 = self.viewer_client.deployments.get('dp_example_2')
-        self._assert_resource_id(dp_example_2, expected_id='dp_example_2')
+        found_deployment = self.admin_client.deployments.get(deployment_id)
+        self._assert_resource_id(deployment_id, found_deployment)
+        found_deployment = self.deployer_client.deployments.get(deployment_id)
+        self._assert_resource_id(deployment_id, found_deployment)
+        found_deployment = self.viewer_client.deployments.get(deployment_id)
+        self._assert_resource_id(deployment_id, found_deployment)
 
         # ...but simple users should not
         self._assert_unauthorized(self.simple_user_client.deployments.get,
-                                  'dp_example_1')
+                                  deployment_id)
 
-    def _test_list_deployments(self):
+    def _test_list_deployments(self, expected_ids):
         # admins, deployers and viewers should be able so list deployments
         deployments_list = self.admin_client.deployments.list()
-        expected_ids = set(['dp_example_1', 'dp_example_2'])
-        self._assert_resources_list_ids(deployments_list, expected_ids)
+        self._assert_resources_list_ids(expected_ids, deployments_list)
         deployments_list = self.deployer_client.deployments.list()
-        self._assert_resources_list_ids(deployments_list, expected_ids)
+        self._assert_resources_list_ids(expected_ids, deployments_list)
         deployments_list = self.viewer_client.deployments.list()
-        self._assert_resources_list_ids(deployments_list, expected_ids)
+        self._assert_resources_list_ids(expected_ids, deployments_list)
 
         # ...but simple users should not
         self._assert_unauthorized(self.simple_user_client.deployments.list)
 
-    def _test_create_deployments(self):
+    def _test_create_deployments(self, blueprint_id):
         # admins and deployers should be able to create deployments...
-        self.admin_client.deployments.create('bp_example_1', 'dp_example_1')
-        self.deployer_client.deployments.create('bp_example_1', 'dp_example_2')
+        deployment1_id = 'deployment1_id'
+        deployment2_id = 'deployment2_id'
+        self.admin_client.deployments.create(blueprint_id, deployment1_id)
+        self.deployer_client.deployments.create(blueprint_id, deployment2_id)
 
         # ...but viewers and simple users should not
         self._assert_unauthorized(self.viewer_client.deployments.create,
@@ -309,14 +338,81 @@ class AuthorizationTests(SecurityTestBase):
         self._assert_unauthorized(self.simple_user_client.deployments.create,
                                   'dummy_bp', 'dummy_dp')
 
+        return deployment1_id, deployment2_id
+
     ####################
     # execution methods
     ####################
+    def _test_start_executions(self, deployment_ids):
+        # admins and deployers should be able to start executions...
+        execution1 = self.admin_client.executions.start(
+            deployment_id=deployment_ids[0], workflow_id='install')
+        execution2 = self.deployer_client.executions.start(
+            deployment_id=deployment_ids[1], workflow_id='install')
 
-    def _test_cancel_executions(self, execution1_id, execution2_id):
-        # preparing executions for delete
-        self.deployer_client.executions.update(execution1_id, 'pending')
-        self.deployer_client.executions.update(execution2_id, 'pending')
+        # ...but viewers and simple users should not
+        self._assert_unauthorized(self.viewer_client.executions.start,
+                                  'dummy_dp', 'install')
+        self._assert_unauthorized(self.simple_user_client.executions.start,
+                                  'dummy_dp', 'install')
+
+        self.wait_for_deployment_creation(self.admin_client, deployment_ids[0])
+        self.wait_for_deployment_creation(self.admin_client, deployment_ids[1])
+
+        return execution1, execution2
+
+    def _test_list_executions(self, expected_num_of_executions):
+        # admins, deployers and viewers should be able so list executions
+        executions_list = self.admin_client.executions.list()
+        self.assertEqual(len(executions_list), expected_num_of_executions)
+        executions_list = self.deployer_client.executions.list()
+        self.assertEqual(len(executions_list), expected_num_of_executions)
+        executions_list = self.viewer_client.executions.list()
+        self.assertEqual(len(executions_list), expected_num_of_executions)
+
+        # ...but simple users should not
+        self._assert_unauthorized(self.simple_user_client.executions.list)
+
+    def _test_get_executions(self, wanted_execution):
+        # admins, deployers and viewers should be able to get executions...
+        found_execution = self.admin_client.executions.get(
+            wanted_execution['id'])
+        self._assert_execution(wanted_execution, found_execution)
+        found_execution = self.deployer_client.executions.get(
+            wanted_execution['id'])
+        self._assert_execution(wanted_execution, found_execution)
+        found_execution = self.viewer_client.executions.get(
+            wanted_execution['id'])
+        self._assert_execution(wanted_execution, found_execution)
+
+        # ...but simple users should not
+        self._assert_unauthorized(self.simple_user_client.executions.get,
+                                  wanted_execution['id'])
+
+    def _test_update_executions(self, execution):
+        # admins and deployers should be able to update executions...
+        updated_execution = self.admin_client.executions.update(
+            execution['id'], 'dummy_status1')
+        self._assert_execution(execution, updated_execution)
+        self.assertEqual('dummy_status1', updated_execution['status'])
+
+        updated_execution = self.deployer_client.executions.update(
+            execution['id'], 'dummy_status2')
+        self._assert_execution(execution, updated_execution)
+        self.assertEqual('dummy_status2', updated_execution['status'])
+
+        # ...but viewers and simple users should not
+        self._assert_unauthorized(self.viewer_client.executions.update,
+                                  execution['id'], 'dummy-status')
+        self._assert_unauthorized(self.simple_user_client.executions.update,
+                                  execution['id'], 'dummy-status')
+
+    def _test_cancel_executions(self, executions):
+        execution1_id = executions[0]['id']
+        execution2_id = executions[1]['id']
+        # preparing executions for delete - setting status to pending
+        self.admin_client.executions.update(execution1_id, 'pending')
+        self.admin_client.executions.update(execution2_id, 'pending')
 
         # admins and deployers should be able to cancel executions...
         self.admin_client.executions.cancel(execution1_id)
@@ -328,118 +424,40 @@ class AuthorizationTests(SecurityTestBase):
         self._assert_unauthorized(self.simple_user_client.executions.cancel,
                                   execution2_id)
 
-    def _test_update_executions(self, execution_id):
-        # admins and deployers should be able to update executions...
-        execution = self.admin_client.executions.update(
-            execution_id, 'dummy_status1')
-        self._assert_execution(execution,
-                               expected_blueprint_id='blueprint_1',
-                               expected_deployment_id='deployment_1',
-                               expected_workflow_name='install',
-                               expected_status='dummy_status1')
-        execution = self.admin_client.executions.update(
-            execution_id, 'dummy_status2')
-        self._assert_execution(execution,
-                               expected_blueprint_id='blueprint_1',
-                               expected_deployment_id='deployment_1',
-                               expected_workflow_name='install',
-                               expected_status='dummy_status2')
-        execution = self.deployer_client.executions.update(
-            execution_id, 'dummy_status3')
-        self._assert_execution(execution,
-                               expected_blueprint_id='blueprint_1',
-                               expected_deployment_id='deployment_1',
-                               expected_workflow_name='install',
-                               expected_status='dummy_status3')
-
-        # ...but viewers and simple users should not
-        self._assert_unauthorized(self.viewer_client.executions.update,
-                                  execution_id, 'dummy-status')
-        self._assert_unauthorized(self.simple_user_client.executions.update,
-                                  execution_id, 'dummy-status')
-
-    def _test_get_executions(self, execution1_id, execution2_id):
-        # admins, deployers and viewers should be able to get executions...
-        execution_1 = self.admin_client.executions.get(execution1_id)
-        self._assert_execution(execution_1,
-                               expected_blueprint_id='blueprint_1',
-                               expected_deployment_id='deployment_1',
-                               expected_workflow_name='install')
-        execution_1 = self.deployer_client.executions.get(execution1_id)
-        self._assert_execution(execution_1,
-                               expected_blueprint_id='blueprint_1',
-                               expected_deployment_id='deployment_1',
-                               expected_workflow_name='install')
-        execution_2 = self.viewer_client.executions.get(execution2_id)
-        self._assert_execution(execution_2,
-                               expected_blueprint_id='blueprint_2',
-                               expected_deployment_id='deployment_2',
-                               expected_workflow_name='install')
-
-        # ...but simple users should not
-        self._assert_unauthorized(self.simple_user_client.executions.get,
-                                  'dp_example_1')
-
-    def _test_start_executions(self):
-        # admins and deployers should be able to start executions...
-        execution1 = self.admin_client.executions.start(
-            deployment_id='deployment_1', workflow_id='install')
-        execution2 = self.deployer_client.executions.start(
-            deployment_id='deployment_2', workflow_id='install')
-
-        # ...but viewers and simple users should not
-        self._assert_unauthorized(self.viewer_client.executions.start,
-                                  'dummy_dp', 'install')
-        self._assert_unauthorized(self.simple_user_client.executions.start,
-                                  'dummy_dp', 'install')
-
-        self.wait_for_deployment_creation(self.admin_client, 'deployment_1')
-        self.wait_for_deployment_creation(self.admin_client, 'deployment_2')
-
-        return execution1['id'], execution2['id']
-
-    def _test_list_executions(self):
-        # admins, deployers and viewers should be able so list executions
-        executions_list = self.admin_client.executions.list()
-        self.assertEqual(len(executions_list), 2)
-        executions_list = self.deployer_client.executions.list()
-        self.assertEqual(len(executions_list), 2)
-        executions_list = self.viewer_client.executions.list()
-        self.assertEqual(len(executions_list), 2)
-
-        # ...but simple users should not
-        self._assert_unauthorized(self.simple_user_client.executions.list)
-
     #################
     # node methods
     #################
-    def _test_get_nodes(self):
+    def _test_get_nodes(self, blueprint_id, deployment_id):
         # admins, deployers and viewers should be able to get nodes
-        node1 = self.admin_client.nodes.get(deployment_id='deployment_1',
-                                            node_id='mock_node')
-        self._assert_node(node1, 'mock_node', 'blueprint_1', 'deployment_1',
-                          'cloudify.nodes.Root', 1)
-        node1 = self.deployer_client.nodes.get(deployment_id='deployment_1',
-                                               node_id='mock_node')
-        self._assert_node(node1, 'mock_node', 'blueprint_1', 'deployment_1',
-                          'cloudify.nodes.Root', 1)
-        node1 = self.viewer_client.nodes.get(deployment_id='deployment_1',
-                                             node_id='mock_node')
-        self._assert_node(node1, 'mock_node', 'blueprint_1', 'deployment_1',
-                          'cloudify.nodes.Root', 1)
+        node_id = 'mock_node'
+        node_type = 'cloudify.nodes.Root'
+        found_node = self.admin_client.nodes.get(deployment_id=deployment_id,
+                                                 node_id=node_id)
+        self._assert_node(found_node, node_id, blueprint_id, deployment_id,
+                          node_type, 1)
+
+        found_node = self.deployer_client.nodes.get(
+            deployment_id=deployment_id, node_id=node_id)
+        self._assert_node(found_node, node_id, blueprint_id, deployment_id,
+                          node_type, 1)
+
+        found_node = self.viewer_client.nodes.get(deployment_id=deployment_id,
+                                                  node_id=node_id)
+        self._assert_node(found_node, node_id, blueprint_id, deployment_id,
+                          node_type, 1)
 
         # but simple users should not
         self._assert_unauthorized(self.simple_user_client.nodes.get,
-                                  'deployment_1', 'mock_node')
+                                  deployment_id, node_id)
 
-    def _test_list_nodes(self):
+    def _test_list_nodes(self, expected_nodes_num):
         # admins, deployers and viewers should be able to list nodes...
         nodes_list = self.admin_client.nodes.list()
-        self.assertEqual(len(nodes_list), 1)
+        self.assertEqual(expected_nodes_num, len(nodes_list))
         nodes_list = self.deployer_client.nodes.list()
-        self.assertEqual(len(nodes_list), 1)
+        self.assertEqual(expected_nodes_num, len(nodes_list))
         nodes_list = self.viewer_client.nodes.list()
-        self.assertEqual(len(nodes_list), 1)
+        self.assertEqual(expected_nodes_num, len(nodes_list))
 
         # ...but simple users should not
         self._assert_unauthorized(self.simple_user_client.nodes.list)
@@ -448,26 +466,29 @@ class AuthorizationTests(SecurityTestBase):
     # node instance methods
     #########################
     def _test_update_node_instances(self, instance_id):
+        expected_node_id = 'mock_node'
+        expected_deployment_id = 'deployment_1'
+        runtime_properties = {'prop1': 'value1'}
+        node_instance_state = 'testing_state'
+
         # admins and deployers should be able to update nodes instances
         node_instance = self.admin_client.node_instances.update(
-            instance_id, state='testing_state',
-            runtime_properties={'prop1': 'value1'})
-        self._assert_node_instance(node_instance, 'mock_node',
-                                   'deployment_1', 'testing_state',
-                                   {'prop1': 'value1'})
+            instance_id, node_instance_state, runtime_properties)
+        self._assert_node_instance(node_instance, expected_node_id,
+                                   expected_deployment_id, node_instance_state,
+                                   runtime_properties)
+
         node_instance = self.deployer_client.node_instances.update(
-            instance_id, state='testing_state',
-            runtime_properties={'prop1': 'value1'})
-        self._assert_node_instance(node_instance, 'mock_node',
-                                   'deployment_1', 'testing_state',
-                                   {'prop1': 'value1'})
+            instance_id, node_instance_state, runtime_properties)
+        self._assert_node_instance(node_instance, expected_node_id,
+                                   expected_deployment_id, node_instance_state)
 
         # ...but viewers and simple users should not
         self._assert_unauthorized(self.viewer_client.node_instances.update,
-                                  instance_id, 'testing_state')
+                                  instance_id, node_instance_state)
         self._assert_unauthorized(
             self.simple_user_client.node_instances.update, instance_id,
-            'testing_state')
+            node_instance_state)
 
     def _test_get_node_instance(self, instance_id):
         # admins, deployers and viewers should be able to get nodes instances..
@@ -502,22 +523,21 @@ class AuthorizationTests(SecurityTestBase):
     #############################
     # utility methods
     #############################
-    def _assert_resource_id(self, resource, expected_id):
+    def _assert_resource_id(self, expected_id, resource):
         self.assertEqual(expected_id, resource['id'])
 
-    def _assert_resources_list_ids(self, resources_list, expected_ids):
+    def _assert_resources_list_ids(self, expected_ids, resources_list):
         self.assertEquals(len(expected_ids), len(resources_list))
         resources_ids = [resource.id for resource in resources_list]
-        self.assertEquals(expected_ids, resources_ids)
+        self.assertEquals(set(expected_ids), set(resources_ids))
 
-    def _assert_execution(self, execution, expected_blueprint_id,
-                          expected_deployment_id, expected_workflow_name,
-                          expected_status=None):
-        self.assertEqual(expected_blueprint_id, execution['blueprint_id'])
-        self.assertEqual(expected_deployment_id, execution['deployment_id'])
-        self.assertEqual(expected_workflow_name, execution['workflow_id'])
-        if expected_status:
-            self.assertEqual(expected_status, execution['status'])
+    def _assert_execution(self, expected_execution, found_execution):
+        self.assertEqual(expected_execution['blueprint_id'],
+                         found_execution['blueprint_id'])
+        self.assertEqual(expected_execution['deployment_id'],
+                         found_execution['deployment_id'])
+        self.assertEqual(expected_execution['workflow_id'],
+                         found_execution['workflow_id'])
 
     def _assert_node(self, node, expected_node_id, expected_blueprint_id,
                      expected_deployment_id, expected_node_type,
