@@ -21,11 +21,13 @@ from uuid import uuid4
 from datetime import datetime
 from collections import OrderedDict
 
-from flask_securest.rest_security import SecuredResource
 
+import elasticsearch
 from flask_restful_swagger import swagger
 from flask import request
 from flask.ext.restful import marshal
+
+from flask_securest.rest_security import SecuredResource
 
 from manager_rest import resources
 from manager_rest.resources import (marshal_with,
@@ -960,9 +962,18 @@ class Events(resources.Events):
     def _search(self, query, include=None):
         es = ManagerElasticsearch.get_connection()
 
-        return es.search(index=self._set_index_name(),
-                         body=query,
-                         _source=include or True)
+        try:
+            return es.search(index=self._set_index_name(),
+                             body=query,
+                             _source=include or True)
+        except elasticsearch.TransportError as e:
+            # This happens when the events index is in the process
+            # of being created.
+            if (e.status_code == 503 and
+                    'SearchPhaseExecutionException' in e.error):
+                return {'hits': {'hits': [], 'total': 0}}
+            else:
+                raise
 
     @swagger.operation(
         responseclass='List[Event]',
