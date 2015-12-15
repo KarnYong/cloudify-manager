@@ -92,6 +92,10 @@ class EventsTest(TestCase):
         self.assertEquals(pagination_info.offset, offset)
         self.assertEquals(pagination_info.size, size)
 
+    def test_query_with_reserved_characters(self):
+        message = '+ - = && || > < ! ( ) { } [ ] ^ " ~ * ? : \ /'
+        self.client.events.list(message=message)
+
     def test_search_event_message(self):
         all_events = self.client.events.list()
         # checking partial word and case insensitivity ('sending')

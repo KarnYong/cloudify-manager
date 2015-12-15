@@ -11,6 +11,8 @@
 #  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #  * See the License for the specific language governing permissions and
 #  * limitations under the License.
+import re
+
 import elasticsearch
 from flask import g, current_app as app
 
@@ -52,12 +54,20 @@ class ManagerElasticsearch:
                         and values are the range limits of that field
         :return: An elasticsearch Query DSL body.
         """
+
+        def _escape_reserved_es_chars(val):
+            reserved_chars_regex = \
+                '([\(\)\{\}\+\-\=\>\<\!\[\]\^\"\~\*\?\:\\/]|&&|\|\|\s)'
+            return re.sub(reserved_chars_regex, r'\\\1', val)
+
         def _build_query_match_condition(k, val_list):
+            val_list = \
+                [_escape_reserved_es_chars(val) for val in val_list]
             if len(val_list) == 1:
                 condition = \
                     {"query": {
                         "match": {
-                            k: {"query": val_list[0], "operator": "and"}}}}
+                            k: {"query": val_list, "operator": "and"}}}}
             else:
                 condition = {
                     "or": {
@@ -75,8 +85,11 @@ class ManagerElasticsearch:
             return condition
 
         def _build_wildcard_condition(k, v):
+            clean_val = _escape_reserved_es_chars(v)
+            clean_key = _escape_reserved_es_chars(k)
             return {"query": {"query_string":
-                              {"query": '{k}:*{v}*'.format(k=k, v=v)}}}
+                              {"query": '{k}:*{v}*'
+                                  .format(k=clean_key, v=clean_val)}}}
 
         mandatory_conditions = []
         body = {}
